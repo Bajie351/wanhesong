@@ -296,11 +296,60 @@ def check_swift():
         ("contentInsetAdjustmentBehavior = .never", "安全区交给 CSS env()"),
         ("124.220.38.38", "默认服务器地址"),
         ('"/ui/"', "网页入口路径"),
+        ("window.__ts", "锁屏按键转发到网页的落点"),
+        ("NowPlayingCenter.shared.bind", "把锁屏命令接到 WebView 上"),
+        ("pullState()", "网页状态变化时刷新锁屏卡片"),
     ]:
         if token in shell:
             good("WebShell.swift 含 %s（%s）" % (token, why))
         else:
             bad("WebShell.swift 缺少 %s —— %s" % (token, why))
+
+    # —— 锁屏控制权（本轮核心） ——
+    print("\n[8] 锁屏控制权")
+    np_path = os.path.join(ROOT, APP_NAME, "NowPlaying.swift")
+    if not os.path.isfile(np_path):
+        bad("缺少 NowPlaying.swift —— 锁屏控制权只能靠它，锁屏卡片会被喜马拉雅抢走")
+    else:
+        good("有 NowPlaying.swift（锁屏控制权放在原生层）")
+        npsrc = open(np_path, "r", encoding="utf-8").read()
+        for open_ch, close_ch, label in [("{", "}", "大括号"), ("(", ")", "小括号")]:
+            if npsrc.count(open_ch) != npsrc.count(close_ch):
+                bad("NowPlaying.swift %s不配平：%d vs %d"
+                    % (label, npsrc.count(open_ch), npsrc.count(close_ch)))
+        for token, why in [
+            ("MPRemoteCommandCenter", "接住锁屏/耳机/车机按键"),
+            ("togglePlayPauseCommand", "锁屏上那颗大键"),
+            ("changePlaybackPositionCommand", "锁屏拖进度条"),
+            ("MPNowPlayingInfoCenter", "我们主动写锁屏卡片，不让别人占位"),
+            ("MPMediaItemPropertyArtwork", "锁屏封面"),
+            ("MPNowPlayingInfoPropertyElapsedPlaybackTime", "位置"),
+            ("MPNowPlayingInfoPropertyPlaybackRate", "速率，系统据此自行插值走秒"),
+            ("MPMediaItemArtwork", "封面包成 MPMediaItemArtwork"),
+        ]:
+            if token in npsrc:
+                good("NowPlaying.swift 含 %s（%s）" % (token, why))
+            else:
+                bad("NowPlaying.swift 缺少 %s —— %s" % (token, why))
+
+    # 🔴 这条 guard 是「锁屏卡片变成喜马拉雅」的直接元凶，绝不能回来
+    if "isOtherAudioPlaying" in app:
+        bad("App.swift 又出现了 isOtherAudioPlaying 的判断 —— "
+            "它会让 keepAlive 在别人播放时直接放弃抢会话，锁屏卡片会被抢走")
+    else:
+        good("keepAlive 不再因 isOtherAudioPlaying 放弃抢会话")
+
+    for token, why in [
+        ("mediaServicesWereResetNotification", "音频服务被重置后重新配 category"),
+        ("beginBackgroundTask", "进后台要一小段宽限，暂停时不让会话立刻失效"),
+        ("endBackgroundTask", "宽限到期必须还回去，否则 App 会被 watchdog 杀掉"),
+        ("NowPlayingCenter.shared.installCommands", "App 一启动就挂上锁屏命令"),
+        ("NowPlayingCenter.shared.refresh", "回前台/打断结束后重写卡片"),
+    ]:
+        if token in app:
+            good("App.swift 含 %s（%s）" % (token, why))
+        else:
+            bad("App.swift 缺少 %s —— %s" % (token, why))
 
     if "127.220" in shell:
         bad("源码里出现了 127.220.38.38 —— 这是历史踩过的坑，127 段是回环地址！")

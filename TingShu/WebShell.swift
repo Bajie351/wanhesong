@@ -277,6 +277,9 @@ struct WebShell: UIViewRepresentable {
 
         webView.load(URLRequest(url: model.url))
         context.coordinator.lastLoaded = model.url.absoluteString
+
+        // 锁屏控制必须等 webView 存在才能接 —— 转发动作全靠 evaluateJavaScript
+        context.coordinator.attach(webView: webView)
         return webView
     }
 
@@ -309,8 +312,150 @@ struct WebShell: UIViewRepresentable {
         var lastLoaded: String?
         var lastReloadKey: String?
 
+        /// 转发锁屏动作要用；由 SwiftUI 持有，这里弱引用避免循环
+        private weak var webView: WKWebView?
+
+        /// 最近一次从网页拉到的状态。
+        /// 被打断（来电 / 别的 App 抢占）之前它就是「打断前的样子」，
+        /// 用来判断挂断后要不要自动接着播。
+        private var lastState: [String: Any]?
+
         init(model: WebModel) {
             self.model = model
+        }
+
+        deinit {
+            AudioSessionManager.shared.onInterruptionBegan = nil
+            AudioSessionManager.shared.onInterruptionEnded = nil
+            AudioSessionManager.shared.onMediaServicesReset = nil
+        }
+
+        // MARK: - 接上锁屏控制
+
+        /// WebView 建好之后调一次：把 MPRemoteCommandCenter 的按键接到网页上，
+        /// 并订阅音频会话的几个关键时刻。
+        func attach(webView: WKWebView) {
+            self.webView = webView
+
+            // 锁屏 / 耳机 / 车机按键 ⇒ 网页的 window.__ts.*
+            NowPlayingCenter.shared.bind { [weak self] action in
+                self?.forward(action)
+            }
+
+            // 打断发生时先把当前状态记下来（lastState 靠 tick 在刷，够新）
+            AudioSessionManager.shared.onInterruptionBegan = { [weak self] in
+                self?.captureStateBeforeInterruption()
+            }
+
+            // 打断结束（挂断电话 / Siri 退场）：本来在播就自动接上
+            AudioSessionManager.shared.onInterruptionEnded = { [weak self] in
+                self?.resumeAfterInterruption()
+            }
+
+            // 音频服务被重置后所有命令都失效了，重挂一遍
+            AudioSessionManager.shared.onMediaServicesReset = { [weak self] in
+                guard let self = self, let webView = self.webView else { return }
+                NowPlayingCenter.shared.bind { [weak self] action in
+                    self?.forward(action)
+                }
+                self.pullState()
+            }
+
+            pullState()
+        }
+
+        // MARK: - 锁屏动作 → 网页
+
+        private func forward(_ action: NowPlayingCenter.Action) {
+            guard let webView = self.webView else { return }
+
+            let js: String
+            switch action {
+            case .play:
+                js = "window.__ts&&window.__ts.play&&window.__ts.play();"
+            case .pause:
+                js = "window.__ts&&window.__ts.pause&&window.__ts.pause();"
+            case .toggle:
+                js = "window.__ts&&window.__ts.toggle&&window.__ts.toggle();"
+            case .next:
+                js = "window.__ts&&window.__ts.next&&window.__ts.next();"
+            case .previous:
+                js = "window.__ts&&window.__ts.prev&&window.__ts.prev();"
+            case .seek(let seconds):
+                js = "window.__ts&&window.__ts.seek&&window.__ts.seek(\(Self.num(seconds)));"
+            case .skip(let delta):
+                js = "window.__ts&&window.__ts.skip&&window.__ts.skip(\(Self.num(delta)));"
+            }
+
+            webView.evaluateJavaScript(js) { _, error in
+                if let error = error {
+                    debugPrint("[NowPlaying] 转发动作失败: \(error.localizedDescription)")
+                }
+            }
+
+            // 网页真正开始出声可能晚几十毫秒（要从服务器拿流地址、起缓冲），
+            // 0.45 秒后补拉一次，卡片上的播放状态才对得上
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                self?.pullState()
+            }
+        }
+
+        // MARK: - 状态同步
+
+        /// 让网页把当前播放状态报上来，写进锁屏卡片。
+        /// 网页侧 window.__ts.state() 返回 JSON 字符串。
+        func pullState() {
+            let js = "window.__ts&&window.__ts.state?window.__ts.state():null"
+            webView?.evaluateJavaScript(js) { [weak self] result, error in
+                guard let self = self else { return }
+                if let error = error {
+                    debugPrint("[NowPlaying] 拉状态失败: \(error.localizedDescription)")
+                    return
+                }
+                guard let obj = Self.decode(result) else { return }
+                self.lastState = obj
+                NowPlayingCenter.shared.update(from: obj)
+            }
+        }
+
+        /// 打断的那一刻把状态定住 —— 后面 .ended 要靠它判断「本来在不在播」
+        private func captureStateBeforeInterruption() {
+            // lastState 是每次状态变化时拉的，通常不超过 1 秒，足够准。
+            // 这里再主动拉一次也没意义：被打断时网页那边已经 pause 了。
+            if lastState == nil { pullState() }
+        }
+
+        /// 挂断电话 / 别的 App 放手之后，如果本来是「在播」就接着播。
+        /// 本来暂停着被打断的，不主动开播 —— 那会变成「挂了个电话自己开始念书」。
+        private func resumeAfterInterruption() {
+            let wasPlaying = (lastState?["playing"] as? Bool) ?? false
+            guard wasPlaying else {
+                // 没在播也要把卡片刷一遍，避免会话恢复后卡片信息陈旧
+                pullState()
+                return
+            }
+            debugPrint("[NowPlaying] 打断结束，续播")
+            webView?.evaluateJavaScript(
+                "window.__ts&&window.__ts.play&&window.__ts.play();",
+                completionHandler: nil
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.pullState()
+            }
+        }
+
+        private static func decode(_ result: Any?) -> [String: Any]? {
+            guard
+                let json = result as? String,
+                let data = json.data(using: .utf8),
+                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            return obj
+        }
+
+        /// 拼进 JS 的数字必须是普通十进制，别让 Double 输出成 1e-05 这种科学计数法
+        private static func num(_ v: Double) -> String {
+            String(format: "%.2f", v)
         }
 
         // —— 加载状态 ——
@@ -475,8 +620,11 @@ struct WebShell: UIViewRepresentable {
             switch type {
             case "play", "playing":
                 AudioSessionManager.shared.keepAlive()
+                pullState()
             default:
-                break
+                // pause / ended / meta / state —— 一律把锁屏卡片刷一遍。
+                // 卡片信息陈旧是「被别的 App 顶掉」的前兆，宁可多刷。
+                pullState()
             }
         }
     }
