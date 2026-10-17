@@ -85,11 +85,24 @@ def check_plist():
     else:
         bad("UIBackgroundModes 缺少 audio，锁屏一定没声音")
 
+    # 🔴 这里踩过大坑：iOS 10+ 只要出现 InWebContent / ForMedia / LocalNetworking 任一键，
+    #    NSAllowsArbitraryLoads 就会被整体忽略；而 WKWebView 只认 NSAllowsArbitraryLoadsInWebContent。
+    #    只写 NSAllowsArbitraryLoads 的版本能编译、能装、能打开，但一加载就 -1022 白屏。
     ats = data.get("NSAppTransportSecurity") or {}
-    if ats.get("NSAllowsArbitraryLoads") or ats.get("NSAllowsLocalNetworking"):
-        good("ATS 已放宽，可以访问 http 裸 IP")
+    if ats.get("NSAllowsArbitraryLoadsInWebContent"):
+        good("ATS 含 NSAllowsArbitraryLoadsInWebContent —— WKWebView 才能加载 http 裸 IP")
     else:
-        bad("ATS 没放宽，http:// 请求会被系统直接拦掉")
+        bad("ATS 缺 NSAllowsArbitraryLoadsInWebContent —— WKWebView 会报 -1022 白屏（有 NSAllowsArbitraryLoads 也没用）")
+
+    if ats.get("NSAllowsArbitraryLoads"):
+        good("ATS 也保留了 NSAllowsArbitraryLoads")
+    else:
+        warn("没有 NSAllowsArbitraryLoads，URLSession 直连 http 会受限")
+
+    if ats.get("NSAllowsLocalNetworking"):
+        good("ATS 含 NSAllowsLocalNetworking（将来改局域网 IP 也能连）")
+    else:
+        warn("没有 NSAllowsLocalNetworking，改成局域网 IP 会连不上")
 
     if data.get("UILaunchScreen") is not None:
         good("有 UILaunchScreen（缺了会以兼容模式跑，四周出现黑边）")

@@ -30,9 +30,18 @@
 	</array>
 
 	<!-- ========== 允许明文 http（服务器是裸 IP，没有 HTTPS） ========== -->
+	<!-- ⚠️ iOS 10+ 的规则：只要同时出现 InWebContent / ForMedia / LocalNetworking 里的任意一个，
+	     NSAllowsArbitraryLoads 就会被「整体忽略」。
+	     而 WKWebView 的加载走独立网络进程，只有 NSAllowsArbitraryLoadsInWebContent 对它生效。
+	     ⇒ 必须显式写上，否则 App 一启动就报 -1022（NSURLErrorAppTransportSecurityRequiresSecureConnection），
+	       表现为白屏 + 「连不上服务器」。 -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsForMedia</key>
 		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
