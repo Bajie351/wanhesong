@@ -188,6 +188,29 @@ final class NowPlayingCenter {
         }
     }
 
+    /// 网页直接把封面的像素送过来（canvas → base64）。
+    ///
+    /// 为什么还要这条：我们 plist 里同时写了 InWebContent / ForMedia / LocalNetworking，
+    /// 按 iOS 的规则 `NSAllowsArbitraryLoads` 会被整体忽略，
+    /// 原生自己 URLSession 拉 http 图就可能被 ATS 拦。
+    /// 虽然补了 NSExceptionDomains，但让**已经把图加载出来的网页**直接传像素最稳 ——
+    /// 网页那侧走的是 InWebContent 例外，一定能拿到。
+    func setArtwork(base64: String, itemId: String) {
+        guard
+            !base64.isEmpty,
+            let data = Data(base64Encoded: base64),
+            let image = UIImage(data: data)
+        else { return }
+
+        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        artworkCache[itemId] = artwork
+        if var current = MPNowPlayingInfoCenter.default().nowPlayingInfo {
+            current[MPMediaItemPropertyArtwork] = artwork
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = current
+        }
+        debugPrint("[NowPlaying] 收到网页送来的封面 \(Int(image.size.width))x\(Int(image.size.height))")
+    }
+
     /// 把卡片上已有的信息再写一遍。
     /// App 从后台回来 / 音频服务被重置之后调用 —— 这两处是卡片被顶掉的高发时刻。
     func refresh() {

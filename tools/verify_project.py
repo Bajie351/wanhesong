@@ -104,6 +104,16 @@ def check_plist():
     else:
         warn("没有 NSAllowsLocalNetworking，改成局域网 IP 会连不上")
 
+    # InWebContent/ForMedia/LocalNetworking 一旦出现，NSAllowsArbitraryLoads 就被
+    # 整体忽略 ⇒ 原生自己 URLSession 拉 http 会被 ATS 拦（锁屏封面下载会失败）。
+    # 例外域是独立机制，不受这条规则影响。
+    doms = ats.get("NSExceptionDomains") or {}
+    if isinstance(doms, dict) and doms:
+        good("ATS 有 NSExceptionDomains：%s —— 原生 URLSession 也能走 http" % ",".join(doms.keys()))
+    else:
+        bad("ATS 缺 NSExceptionDomains —— 四条开关同时存在会让 NSAllowsArbitraryLoads "
+            "被整体忽略，原生下载 http 封面会被 ATS 拦掉")
+
     if data.get("UILaunchScreen") is not None:
         good("有 UILaunchScreen（缺了会以兼容模式跑，四周出现黑边）")
     else:
@@ -299,6 +309,7 @@ def check_swift():
         ("window.__ts", "锁屏按键转发到网页的落点"),
         ("NowPlayingCenter.shared.bind", "把锁屏命令接到 WebView 上"),
         ("pullState()", "网页状态变化时刷新锁屏卡片"),
+        ('case "art"', "收网页送来的封面像素"),
     ]:
         if token in shell:
             good("WebShell.swift 含 %s（%s）" % (token, why))
@@ -326,6 +337,7 @@ def check_swift():
             ("MPNowPlayingInfoPropertyElapsedPlaybackTime", "位置"),
             ("MPNowPlayingInfoPropertyPlaybackRate", "速率，系统据此自行插值走秒"),
             ("MPMediaItemArtwork", "封面包成 MPMediaItemArtwork"),
+            ("func setArtwork", "网页把封面像素直接送过来的通道（绕开 ATS）"),
         ]:
             if token in npsrc:
                 good("NowPlaying.swift 含 %s（%s）" % (token, why))

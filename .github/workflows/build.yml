@@ -12,6 +12,11 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+# gh release create 要往仓库写东西。默认 GITHUB_TOKEN 可能是只读，
+# 少了这一句 Release 那一步会直接失败（编译本身不受影响）。
+permissions:
+  contents: write
+
 jobs:
   build:
     # 用 macos-latest 而不是写死 macos-14：GitHub 会定期淘汰老 runner 镜像，

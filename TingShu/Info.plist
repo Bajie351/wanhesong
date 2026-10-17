@@ -45,6 +45,21 @@
 		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- 上面三条一旦出现任意一条，NSAllowsArbitraryLoads 就被整体忽略，
+		     于是原生自己用 URLSession 请求 http 会被 ATS 拦掉（锁屏封面下载就会失败）。
+		     例外域是独立机制，不受这个规则影响，所以显式写一条。 -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>124.220.38.38</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<false/>
+				<key>NSThirdPartyExceptionMinimumTLSVersion</key>
+				<string>TLSv1.0</string>
+			</dict>
+		</dict>
 	</dict>
 
 	<!-- 将来若把服务器地址改成局域网 IP，iOS 14+ 会要这个权限 -->

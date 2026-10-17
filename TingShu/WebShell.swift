@@ -621,6 +621,12 @@ struct WebShell: UIViewRepresentable {
             case "play", "playing":
                 AudioSessionManager.shared.keepAlive()
                 pullState()
+            case "art":
+                // 网页把封面像素直接送过来了（绕开 ATS 的不确定性）
+                if let itemId = body["itemId"] as? String, let b64 = body["b64"] as? String {
+                    NowPlayingCenter.shared.setArtwork(base64: b64, itemId: itemId)
+                }
+                pullState()
             default:
                 // pause / ended / meta / state —— 一律把锁屏卡片刷一遍。
                 // 卡片信息陈旧是「被别的 App 顶掉」的前兆，宁可多刷。
