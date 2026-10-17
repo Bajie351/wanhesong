@@ -202,21 +202,25 @@ final class NowPlayingCenter {
         artworkInFlight.insert(itemId)
 
         URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-            guard let self = self else { return }
-            self.artworkInFlight.remove(itemId)
-
-            if let error = error {
-                debugPrint("[NowPlaying] 封面下载失败: \(error.localizedDescription)")
-                return
-            }
             guard let data = data, let image = UIImage(data: data) else {
-                debugPrint("[NowPlaying] 封面解码失败(\(data?.count ?? 0) B)")
+                // 回调在后台线程，去主线程收尾 —— artworkInFlight / artworkCache
+                // 都是普通集合，跨线程同时改会出问题
+                DispatchQueue.main.async {
+                    self?.artworkInFlight.remove(itemId)
+                }
+                if let error = error {
+                    debugPrint("[NowPlaying] 封面下载失败: \(error.localizedDescription)")
+                } else {
+                    debugPrint("[NowPlaying] 封面解码失败(\(data?.count ?? 0) B)")
+                }
                 return
             }
 
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
 
             DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.artworkInFlight.remove(itemId)
                 self.artworkCache[itemId] = artwork
                 // 只补封面这一项，别把标题/进度覆盖成旧值
                 if var current = MPNowPlayingInfoCenter.default().nowPlayingInfo {

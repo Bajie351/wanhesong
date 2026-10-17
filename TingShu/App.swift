@@ -153,8 +153,8 @@ final class AudioSessionManager {
         }
 
         graceTimer?.invalidate()
-        graceTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            guard self != nil else { return }
+        // 不捕获 self：里面用的都是单例，避免 Timer 把 AudioSessionManager 拽住
+        graceTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
             AudioSessionManager.shared.keepAlive()
             NowPlayingCenter.shared.refresh()
         }
