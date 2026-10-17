@@ -81,3 +81,19 @@ jobs:
           path: TingShu.ipa
           retention-days: 90
           if-no-files-found: error
+
+      # artifact 必须登录 GitHub 才能下载，开发机上没装 gh 就取不到。
+      # 挂一个固定 tag 的 Release：public 仓库的 release asset 可以匿名直链下载，
+      # 以后每次编译都覆盖同一个 tag，地址永远不变。
+      - name: 发布成 Release（免登录直链）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          echo "=== 覆盖 latest-ipa 这个 tag ==="
+          gh release delete latest-ipa --yes --cleanup-tag 2>/dev/null || echo "还没有旧 release，跳过"
+          gh release create latest-ipa TingShu.ipa \
+            --title "听书 ipa（未签名，当前最新）" \
+            --notes "自动编译产物，每次 push 覆盖。commit: $(git rev-parse --short HEAD)"
+          echo "=== 直链 ==="
+          echo "https://github.com/${GITHUB_REPOSITORY}/releases/download/latest-ipa/TingShu.ipa"
