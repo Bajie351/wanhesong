@@ -140,6 +140,14 @@ def main(path):
     else:
         bad("ATS 缺 NSAllowsArbitraryLoadsInWebContent！装上会白屏报 -1022（有 NSAllowsArbitraryLoads 也不顶用）")
 
+    # 四条开关同时存在会让 NSAllowsArbitraryLoads 被整体忽略，
+    # 原生自己 URLSession 拉 http（锁屏封面）会被 ATS 拦，必须靠例外域
+    doms = ats.get("NSExceptionDomains") or {}
+    if doms:
+        good("ATS 有 NSExceptionDomains（%s）← 原生下载 http 封面靠它" % ",".join(doms.keys()))
+    else:
+        bad("ATS 缺 NSExceptionDomains —— 原生拉 http 封面会被 ATS 拦掉，锁屏没有封面")
+
     bid = info.get("CFBundleIdentifier", "")
     if bid == "com.paiwo.tingshu":
         good("CFBundleIdentifier = %s" % bid)
@@ -198,10 +206,30 @@ def main(path):
         warning("发现签名痕迹（_CodeSignature 或 mobileprovision）。"
                 "Sideloadly 重签一般能覆盖，若报冲突就先删掉旧 App")
     else:
-        good("未签名 —— 符合预期，Sideloadly 会用你的 Apple ID 重签")
+        good("未签名 —— 符合预期，侧载工具（爱思助手）会用你的 Apple ID 重签")
+
+    # —— 锁屏控制权有没有真的编进去 ——
+    print("\n[6] 锁屏控制权（二进制符号）")
+    exe = os.path.join(app_dir, "TingShu")
+    try:
+        with open(exe, "rb") as f:
+            blob = f.read()
+    except OSError as e:
+        bad("读不到可执行文件：%s" % e)
+        blob = b""
+    for tok, why in [
+        (b"NowPlayingCenter", "锁屏控制的原生类"),
+        (b"setArtwork", "网页直传封面的通道"),
+        (b"window.__ts", "锁屏按键转发到网页的落点"),
+        (b"togglePlayPause", "MPRemoteCommandCenter 的播放/暂停键"),
+    ]:
+        if tok in blob:
+            good("二进制含 %s（%s）" % (tok.decode(), why))
+        else:
+            bad("二进制里找不到 %s —— %s 没编进去？" % (tok.decode(), why))
 
     # —— 关键文件清单 ——
-    print("\n[6] 包内文件")
+    print("\n[7] 包内文件")
     for dirpath, _dirs, files in os.walk(app_dir):
         rel = os.path.relpath(dirpath, app_dir)
         for fn in sorted(files)[:200]:
@@ -214,7 +242,7 @@ def main(path):
     print("\n" + "=" * 64)
     print(" 通过 %d 项｜告警 %d 项｜失败 %d 项" % (ok, warn, fail))
     if fail == 0:
-        print(" 结论：可以拿去 Sideloadly 安装了")
+        print(" 结论：可以拿去重签安装了")
     else:
         print(" 结论：有失败项，先别装，把上面的 FAIL 发出来")
     print("=" * 64)
