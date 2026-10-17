@@ -16,6 +16,18 @@ C:\Users\admin\Documents\听书App\
 
 > ⚠️ 每次重签都用**未签名**那个原包，不要拿已签名的再去签。
 
+## 拿 ipa 的免登录直链
+
+GitHub 的 Actions 产物**必须登录才能下载**，本机没装 `gh` 就取不到。
+所以流水线每次编译完会额外产出一个 Release，tag 固定为 `latest-ipa`：
+
+```
+https://github.com/Bajie351/wanhesong/releases/download/latest-ipa/TingShu.ipa
+```
+
+公开仓库的 Release 附件可以匿名直链下载，地址永远不会变。
+**只有改了原生层才需要重新出包**，改界面（`app.js` / `style.css` / `index.html`）不用。
+
 ## 续签步骤（不用重新编译，约 5 分钟）
 
 1. **先关掉 iKuuuVPN** —— 签名必须直连 Apple，开代理会报 503
