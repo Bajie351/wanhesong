@@ -1,0 +1,12 @@
+# 统一行尾为 LF。
+# Windows 上默认会把文本文件转成 CRLF 提交，虽然 Swift/YAML 都能吃，
+# 但 CI 里一旦出现 shell 脚本或 heredoc，CRLF 就会变成恼人的 $'\r' 错误。
+# 显式规定一遍，省得以后踩。
+* text=auto eol=lf
+
+# 二进制文件不要做任何换行/编码转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ipa binary
+*.mobileprovision binary

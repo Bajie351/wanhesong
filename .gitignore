@@ -1,0 +1,17 @@
+# XcodeGen 现场生成的工程文件，不入库
+*.xcodeproj/
+*.xcworkspace/
+
+# 编译产物
+build/
+DerivedData/
+Payload/
+*.ipa
+*.dSYM/
+
+# Xcode 用户态文件
+xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store

@@ -1,0 +1,83 @@
+name: Build IPA
+
+# 在 GitHub 的 macOS 机器上编译，产出未签名的 ipa。
+# 未签名 ipa 不能直接装，需要用 Sideloadly 用自己的 Apple ID 重签后再装。
+#
+# 触发方式：
+#   · 往 main 分支 push
+#   · 或者在 Actions 页面点 "Run workflow"
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    # 用 macos-latest 而不是写死 macos-14：GitHub 会定期淘汰老 runner 镜像，
+    # 写死的版本一旦退役，整条流水线会直接报「no runner matching」。
+    # latest 永远指向当前可用的最新稳定 macOS 镜像。
+    runs-on: macos-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: 显示编译环境
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 编译（不签名）
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project TingShu.xcodeproj \
+            -scheme TingShu \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build
+
+      - name: 校验产物
+        run: |
+          APP="build/Build/Products/Release-iphoneos/TingShu.app"
+          test -d "$APP" || { echo "没有产出 .app"; exit 1; }
+          echo "=== Bundle 内容 ==="
+          ls -la "$APP"
+          echo "=== 二进制架构 ==="
+          lipo -info "$APP/TingShu" || true
+          echo "=== Info.plist 关键字段 ==="
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP/Info.plist"
+
+      - name: 打包成 ipa
+        run: |
+          set -e
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/TingShu.app Payload/
+          # -y 保留符号链接
+          zip -qry TingShu.ipa Payload
+          rm -rf Payload
+          ls -lh TingShu.ipa
+          shasum -a 256 TingShu.ipa
+
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: TingShu-ipa
+          path: TingShu.ipa
+          retention-days: 90
+          if-no-files-found: error
